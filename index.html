@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High Fidelity JS 3D Engine</title>
+    <!-- PeerJS for Voice Chat -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    
+    <!-- Favicon controller icon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎮</text></svg>">
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; user-select: none; }
+        canvas { display: block; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+            background: rgba(255, 255, 255, 0.8); border-radius: 50%; 
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 10;
+            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+            display: none; /* Hidden until login */
+        }
+
+        /* --- LOGIN SCREEN --- */
+        #login-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); backdrop-filter: blur(5px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 2000;
+        }
+        #login-box {
+            background: #151515; padding: 40px; border-radius: 8px; 
+            border: 1px solid #444; text-align: center; 
+            box-shadow: 0 0 50px rgba(0,170,255,0.15);
+        }
+        #player-name-input {
+            padding: 12px; font-size: 18px; background: #222; border: 1px solid #555; 
+            color: white; border-radius: 4px; outline: none; text-align: center; 
+            width: 200px; margin-bottom: 20px; font-family: sans-serif;
+        }
+        #player-name-input:focus { border-color: #00aaff; background: #333; }
+        #btn-join {
+            padding: 12px 40px; font-size: 18px; background: #00aaff; color: white; 
+            border: none; border-radius: 4px; cursor: pointer; font-weight: bold; 
+            transition: 0.2s; text-transform: uppercase; letter-spacing: 1px;
+        }
+        #btn-join:hover { background: #0088cc; transform: scale(1.05); }
+
+        #status-bars {
+            position: absolute; bottom: 30px; left: 30px; 
+            width: 250px; pointer-events: none;
+            display: none; /* Hidden until login */
+            flex-direction: column; gap: 8px;
+        }
+        .bar-container {
+            width: 100%; height: 12px; background: rgba(0,0,0,0.6);
+            border: 1px solid #444; border-radius: 6px; overflow: hidden;
+            position: relative;
+        }
+        .bar-fill { height: 100%; transition: width 0.1s; }
+        #health-fill { background: #ff4444; width: 100%; }
+        #energy-fill { background: #00aaff; width: 100%; }
+        .bar-label {
+            position: absolute; top: 0; left: 5px; font-size: 9px; line-height: 12px;
+            color: rgba(255,255,255,0.8); font-weight: bold; font-family: sans-serif;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        #connection-status {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.7); color: #ffaa00; padding: 5px 15px;
+            border-radius: 20px; font-weight: bold; font-size: 14px; pointer-events: none;
+            display: none; border: 1px solid #ffaa00;
+        }
+
+        /* --- PLAYER LIST (SCOREBOARD) --- */
+        #player-list {
+            position: absolute; top: 100px; left: 50%; transform: translateX(-50%);
+            width: 500px; background: rgba(0, 0, 0, 0.9); border: 2px solid #444;
+            border-radius: 8px; display: none; flex-direction: column; padding: 10px;
+            font-family: sans-serif; color: white; z-index: 1500;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+        .plist-header { 
+            display: flex; justify-content: space-between; padding: 10px; 
+            border-bottom: 2px solid #00aaff; color: #00aaff; font-weight: bold; text-transform: uppercase;
+        }
+        .plist-row { 
+            display: flex; justify-content: space-between; padding: 8px 10px; 
+            border-bottom: 1px solid #333; background: rgba(255,255,255,0.02);
+        }
+        .plist-row:last-child { border-bottom: none; }
+        .plist-ping { color: #00ff00; font-family: monospace; }
+        .plist-name { font-weight: bold; }
+
+        /* --- CHAT SYSTEM --- */
+        #chat-container {
+            position: absolute; top: 20px; left: 20px;
+            width: 350px; height: 250px;
+            display: none; /* Hidden until login */
+            flex-direction: column; justify-content: flex-end;
+            pointer-events: none; 
+            transition: background 0.2s;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        #chat-container.active {
+            pointer-events: auto;
+            background: rgba(0,0,0,0.6);
+        }
+        #chat-messages {
+            overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+            text-shadow: 1px 1px 0 #000; font-family: sans-serif; font-size: 14px;
+            margin-bottom: 5px;
+            max-height: 200px;
+            mask-image: linear-gradient(to top, black 80%, transparent 100%);
+        }
+        .chat-msg { 
+            margin-bottom: 4px; padding: 2px 5px; 
+            background: rgba(0,0,0,0.3); border-radius: 4px; color: white; 
+            opacity: 0; 
+            transition: opacity 2s ease-in; 
+        }
+        .chat-msg.appear { 
+            opacity: 1; 
+            transition: opacity 0.2s ease-out; 
+        }
+        #chat-container.active .chat-msg {
+            opacity: 1 !important;
+            transition: none;
+        }
+        .chat-name { font-weight: bold; margin-right: 5px; }
+        
+        #chat-input {
+            width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #555;
+            color: white; padding: 8px; border-radius: 4px; pointer-events: auto;
+            font-family: sans-serif; opacity: 0; transition: opacity 0.2s;
+        }
+        #chat-input:focus { opacity: 1; outline: none; border-color: #00aaff; background: rgba(0,0,0,0.8); }
+        
+        #death-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(20, 0, 0, 0.85); backdrop-filter: blur(5px);
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 1000; pointer-events: auto;
+        }
+        #death-screen h1 {
+            color: #ff3333; font-size: 64px; margin-bottom: 20px; 
+            text-shadow: 0 0 20px rgba(255, 0, 0, 0.5); font-family: sans-serif; letter-spacing: 5px;
+        }
+        #btn-respawn {
+            padding: 15px 40px; font-size: 24px; background: #ff4444; color: white;
+            border: none; border-radius: 4px; cursor: pointer; font-weight: bold;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.4); transition: 0.2s;
+        }
+        #btn-respawn:hover { background: #ff6666; transform: scale(1.05); }
+
+        .hud-element { position: absolute; pointer-events: none; font-weight: bold; font-size: 16px; text-shadow: 1px 1px 0 #000; display: none; padding: 5px; cursor: move; user-select: none; }
+        #fps-display { top: 10px; left: 10px; color: #00ff00; }
+        #coords-display { top: 10px; right: 10px; color: #ffffff; }
+        .hud-element.draggable { pointer-events: auto; border: 2px dashed #00aaff; background: rgba(0, 0, 0, 0.5); }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        #hotbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; gap: 5px; pointer-events: none; }
+        .slot { width: 50px; height: 50px; background: rgba(0, 0, 0, 0.5); border: 2px solid #444; border-radius: 4px; display: flex; justify-content: center; align-items: center; color: white; font-size: 12px; font-family: sans-serif; position: relative; }
+        .slot.active { border-color: #00aaff; background: rgba(0, 170, 255, 0.2); box-shadow: 0 0 10px rgba(0, 170, 255, 0.3); }
+        .slot span { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #aaa; }
+        .item-icon { font-size: 24px; } 
+        
+        #instructions { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.6); padding: 20px; border-radius: 8px; font-family: sans-serif; color: white; text-align: center; pointer-events: auto; cursor: pointer; transition: opacity 0.3s; display: none; }
+        #pause-menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-family: sans-serif; background: rgba(10, 15, 20, 0.85); backdrop-filter: blur(10px); display: flex; opacity: 0; pointer-events: none; transition: opacity 0.2s; color: #eee; }
+        #pause-menu.visible { opacity: 1; pointer-events: auto; }
+        #pause-menu.editing { opacity: 0; pointer-events: none; }
+        
+        #admin-menu { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; background: rgba(30, 0, 0, 0.9); border: 2px solid #ff4444; padding: 20px; border-radius: 8px; font-family: sans-serif; color: white; display: none; pointer-events: auto; box-shadow: 0 0 20px rgba(255, 0, 0, 0.3); z-index: 500; }
+        #admin-menu h3 { color: #ff4444; margin-top: 0; border-bottom: 1px solid #ff4444; padding-bottom: 10px; text-transform: uppercase; text-align: center; }
+        #admin-menu.visible { display: block; }
+        
+        #inventory-menu { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 500px; background: rgba(20, 20, 25, 0.95); border: 2px solid #444; padding: 20px; border-radius: 8px; font-family: sans-serif; color: white; display: none; pointer-events: auto; box-shadow: 0 0 30px rgba(0, 0, 0, 0.8); z-index: 450; }
+        #inventory-menu.visible { display: block; }
+        #inventory-menu h3 { color: #aaaaaa; margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 20px; }
+        .inv-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+        .inv-slot { width: 80px; height: 80px; background: rgba(255, 255, 255, 0.05); border: 2px solid #333; border-radius: 4px; cursor: pointer; transition: 0.1s; }
+        .inv-slot:hover { border-color: #00aaff; background: rgba(255, 255, 255, 0.1); }
+        .sidebar { width: 250px; background: rgba(255,255,255,0.05); padding: 20px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid #333; }
+        .content { flex: 1; padding: 40px; overflow-y: auto; }
+        h2 { border-bottom: 2px solid #00aaff; padding-bottom: 10px; margin-bottom: 20px; }
+        h3 { margin-top: 30px; border-bottom: 1px solid #444; padding-bottom: 5px; color: #aaa; font-size: 14px; text-transform: uppercase; }
+        .tab-btn { background: none; border: none; color: #888; padding: 15px; text-align: left; font-size: 18px; cursor: pointer; transition: 0.2s; }
+        .tab-btn:hover { color: white; background: rgba(255,255,255,0.05); }
+        .tab-btn.active { color: white; border-left: 4px solid #00aaff; background: rgba(0,170,255,0.1); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .setting-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); margin-bottom: 15px; padding: 15px; border-radius: 6px; }
+        label { font-size: 16px; }
+        .val-display { color: #00aaff; font-weight: bold; margin-left: 10px; min-width: 80px; text-align: right; }
+        .keybind-btn { background: #222; border: 1px solid #444; color: #fff; padding: 8px 15px; border-radius: 4px; cursor: pointer; min-width: 100px; text-align: center; font-family: monospace; font-size: 14px; }
+        .keybind-btn:hover { background: #333; border-color: #00aaff; }
+        .keybind-btn.recording { background: #00aaff; color: #000; border-color: #fff; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        input[type=range] { width: 200px; cursor: pointer; }
+        button.btn-blue { padding: 10px 20px; background: #00aaff; border: none; color: white; font-size: 14px; font-weight: bold; border-radius: 5px; cursor: pointer; }
+        button.btn-blue:hover { background: #0088cc; }
+        button#btn-resume { position: absolute; bottom: 30px; right: 30px; padding: 15px 40px; font-size: 18px; }
+        #edit-toolbar { position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(10, 15, 20, 0.95); padding: 20px; border-top: 2px solid #00aaff; display: none; justify-content: center; align-items: center; gap: 30px; z-index: 200; pointer-events: auto; box-sizing: border-box; color: white; font-family: sans-serif; }
+        #edit-toolbar.visible { display: flex; }
+        .tool-group { display: flex; align-items: center; gap: 10px; }
+        .tool-group label { font-size: 14px; color: #aaa; }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="login-screen">
+        <div id="login-box">
+            <h1 style="color:#00aaff; margin-top:0;">ENTER WORLD</h1>
+            <input type="text" id="player-name-input" placeholder="Nickname" maxlength="12">
+            <br>
+            <button id="btn-join">JOIN GAME</button>
+        </div>
+    </div>
+
+    <div id="player-list"></div>
+
+    <div id="crosshair"></div>
+    <div id="connection-status">Connecting...</div>
+
+    <!-- CHAT UI -->
+    <div id="chat-container">
+        <div id="chat-messages"></div>
+        <input type="text" id="chat-input" placeholder="Type here..." maxlength="100">
+    </div>
+    
+    <div id="death-screen">
+        <h1>YOU DIED</h1>
+        <button id="btn-respawn">RESPAWN</button>
+    </div>
+
+    <div id="status-bars">
+        <div class="bar-container">
+            <div id="health-fill" class="bar-fill"></div>
+            <div class="bar-label">HEALTH</div>
+        </div>
+        <div class="bar-container">
+            <div id="energy-fill" class="bar-fill"></div>
+            <div class="bar-label">ENERGY</div>
+        </div>
+    </div>
+
+    <div id="fps-display" class="hud-element">FPS: 60</div>
+    <div id="coords-display" class="hud-element">X:0 Y:0 Z:0</div>
+
+    <div id="ui-layer">
+        <div id="instructions">
+            <h1>CLICK TO START</h1>
+            <p>WASD to Move | SHIFT to Crouch</p>
+            <p>SPACE to Jump | CTRL to Sprint</p>
+            <p>LEFT CLICK Grab | RIGHT CLICK Freeze</p>
+            <p>V to Toggle View | R to Rotate Prop</p>
+            <p>ENTER to Chat</p>
+            <p>TAB to View Player List</p>
+            <p>HOLD V to Talk</p>
+            <p>E to Open Inventory | ~ for Admin</p>
+            <p style="color:#00aaff; margin-top:10px;">Press ESC for Settings</p>
+        </div>
+
+        <div id="admin-menu">
+            <h3>ADMIN PANEL</h3>
+            <div class="setting-row"><label>God Mode (No Damage)</label><input type="checkbox" id="cheat-god"></div>
+            <div class="setting-row"><label>Infinite Energy</label><input type="checkbox" id="cheat-stamina"></div>
+            <div class="setting-row"><label>Flight Mode</label><input type="checkbox" id="cheat-fly"></div>
+            <div class="setting-row"><label>Noclip</label><input type="checkbox" id="cheat-noclip"></div>
+            <div class="setting-row"><label>Freecam</label><input type="checkbox" id="cheat-freecam"></div>
+            <div class="setting-row"><label>Move in Freecam</label><input type="checkbox" id="cheat-freecam-move"></div>
+            <div style="text-align:center; margin-top:20px;"><button class="btn-blue" id="btn-close-admin" style="background:#ff4444;">CLOSE</button></div>
+        </div>
+
+        <div id="inventory-menu">
+            <h3>INVENTORY</h3>
+            <div class="inv-grid" id="inv-grid-container"></div>
+        </div>
+
+        <div id="hotbar">
+            <div class="slot active" id="slot-1"><span>1</span><div class="item-icon">🔫</div></div>
+            <div class="slot" id="slot-2"><span>2</span></div>
+            <div class="slot" id="slot-3"><span>3</span></div>
+            <div class="slot" id="slot-4"><span>4</span></div>
+            <div class="slot" id="slot-5"><span>5</span></div>
+            <div class="slot" id="slot-6"><span>6</span></div>
+            <div class="slot" id="slot-7"><span>7</span></div>
+            <div class="slot" id="slot-8"><span>8</span></div>
+            <div class="slot" id="slot-9"><span>9</span></div>
+        </div>
+
+        <div id="edit-toolbar">
+            <h3 style="margin:0; color:#00aaff;" id="edit-target-name">Editing</h3>
+            <div class="tool-group"><label>Color</label><input type="color" id="edit-color"></div>
+            <div class="tool-group"><label>Size</label><input type="range" id="edit-size" min="10" max="40" value="16" list="snap-size"><datalist id="snap-size"><option value="16"></option></datalist></div>
+            <div class="tool-group"><button class="btn-blue" id="edit-pos-btn">Top Left</button></div>
+            <button id="btn-finish-edit" style="background:#28a745; border:none; color:white; padding:10px 30px; border-radius:20px; font-weight:bold; cursor:pointer;">DONE</button>
+        </div>
+
+        <div id="pause-menu">
+            <div class="sidebar">
+                <h3 style="margin-left: 15px; border:none; margin-top:0;">SETTINGS</h3>
+                <button class="tab-btn active" data-target="tab-graphics">Graphics</button>
+                <button class="tab-btn" data-target="tab-controls">Controls</button>
+                <button class="tab-btn active" data-target="tab-physics">Physics</button>
+                <button class="tab-btn" data-target="tab-interface">Interface</button>
+            </div>
+            <div class="content">
+                <div id="tab-graphics" class="tab-content active">
+                    <h2>Graphics</h2>
+                    
+                    <div style="background: rgba(0, 170, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #00aaff;">
+                        <div class="setting-row" style="background:none; padding:0; margin:0;">
+                            <label style="color:#fff; font-weight:bold;">QUALITY PRESET</label>
+                            <div>
+                                <input type="range" id="opt-preset" min="0" max="3" value="3" step="1">
+                                <span class="val-display" id="val-preset">ULTRA</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3>Detailed Settings</h3>
+                    <div class="setting-row"><label>Shadow Quality</label><div><input type="range" id="opt-shadows" min="0" max="2" value="2" step="1"><span class="val-display" id="val-shadows">HIGH</span></div></div>
+                    <div class="setting-row"><label>Bloom (Glow)</label><input type="checkbox" id="opt-bloom" checked></div>
+                    <div class="setting-row"><label>Resolution Scale</label><div><input type="range" id="opt-res" min="50" max="100" value="100" step="25"><span class="val-display" id="val-res">100%</span></div></div>
+                    <div class="setting-row"><label>Field of View</label><div><input type="range" id="opt-fov" min="60" max="120" value="75"><span class="val-display" id="val-fov">75</span></div></div>
+                    <div class="setting-row"><label>Render Distance</label><div><input type="range" id="opt-dist" min="20" max="200" value="60"><span class="val-display" id="val-dist">60</span></div></div>
+                </div>
+
+                <div id="tab-controls" class="tab-content">
+                    <h2>Controls</h2>
+                    <div class="setting-row"><label>Mouse Sensitivity</label><div><input type="range" id="opt-sens" min="1" max="100" value="20"><span class="val-display" id="val-sens">20</span></div></div>
+                    <h3>Key Bindings</h3>
+                    <div id="keybind-list">
+                        <div class="setting-row"><label>Voice (Push-to-Talk)</label><button class="keybind-btn" data-action="Voice">KeyV</button></div>
+                        <div class="setting-row"><label>Player List</label><button class="keybind-btn" data-action="PlayerList">Tab</button></div>
+                        <div class="setting-row"><label>Open Chat</label><button class="keybind-btn" data-action="Chat">Enter</button></div>
+                        <div class="setting-row"><label>Move Forward</label><button class="keybind-btn" data-action="Forward">KeyW</button></div>
+                        <div class="setting-row"><label>Move Backward</label><button class="keybind-btn" data-action="Backward">KeyS</button></div>
+                        <div class="setting-row"><label>Move Left</label><button class="keybind-btn" data-action="Left">KeyA</button></div>
+                        <div class="setting-row"><label>Move Right</label><button class="keybind-btn" data-action="Right">KeyD</button></div>
+                        <div class="setting-row"><label>Jump</label><button class="keybind-btn" data-action="Jump">Space</button></div>
+                        <div class="setting-row"><label>Crouch</label><button class="keybind-btn" data-action="Crouch">ShiftLeft</button></div>
+                        <div class="setting-row"><label>Sprint</label><button class="keybind-btn" data-action="Sprint">ControlLeft</button></div>
+                        <div class="setting-row"><label>Inventory</label><button class="keybind-btn" data-action="Inventory">KeyE</button></div>
+                        <div class="setting-row"><label>Change View</label><button class="keybind-btn" data-action="ToggleView">KeyV</button></div>
+                        <div class="setting-row"><label>Admin Menu</label><button class="keybind-btn" data-action="AdminMenu">Backquote</button></div>
+                        <div class="setting-row"><label>Grab / Use</label><button class="keybind-btn" data-action="Fire">Mouse0</button></div>
+                        <div class="setting-row"><label>Freeze / Alt</label><button class="keybind-btn" data-action="AltFire">Mouse2</button></div>
+                        <div class="setting-row"><label>Rotate Prop</label><button class="keybind-btn" data-action="Rotate">KeyR</button></div>
+                        <div class="setting-row"><label>Interact / Drive</label><button class="keybind-btn" data-action="Interact">KeyF</button></div>
+                    </div>
+                </div>
+                <div id="tab-physics" class="tab-content">
+                    <h2>Physics</h2>
+                    <div class="setting-row"><label>Grab Distance</label><div><input type="range" id="opt-grab-dist" min="10" max="300" value="30"><span class="val-display" id="val-grab">30</span></div></div>
+                    <div class="setting-row"><label>Gravity</label><div><input type="range" id="opt-grav" min="1" max="100" value="30"><span class="val-display" id="val-grav">30</span></div></div>
+                    <div class="setting-row"><label>Jump Force</label><div><input type="range" id="opt-jump" min="5" max="50" value="12"><span class="val-display" id="val-jump">12</span></div></div>
+                    <div class="setting-row"><label>Walk Speed</label><div><input type="range" id="opt-speed" min="5" max="50" value="10"><span class="val-display" id="val-speed">10</span></div></div>
+                    <div class="setting-row"><label>Sprint Speed</label><div><input type="range" id="opt-sprint" min="10" max="80" value="18"><span class="val-display" id="val-sprint">18</span></div></div>
+                </div>
+                <div id="tab-interface" class="tab-content">
+                    <h2>Interface</h2>
+                    <h3>FPS Counter</h3>
+                    <div class="setting-row"><label>Show FPS</label><input type="checkbox" id="ui-fps-show"></div>
+                    <div class="setting-row"><label>Customize</label><button class="btn-blue" id="btn-edit-fps">Customize</button></div>
+                    <h3>Coordinates</h3>
+                    <div class="setting-row"><label>Show Coordinates</label><input type="checkbox" id="ui-coords-show"></div>
+                    <div class="setting-row"><label>Customize</label><button class="btn-blue" id="btn-edit-coords">Customize</button></div>
+                </div>
+                <button id="btn-resume" class="btn-blue">RESUME</button>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="game.js"></script>
+</body>
+</html>
